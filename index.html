@@ -1,0 +1,569 @@
+import React, { useState, useEffect } from 'react';
+import { Trophy, Target, Clock, RotateCcw, Star, AlertCircle, Eye, EyeOff } from 'lucide-react';
+
+const MultiplicationTrainer = () => {
+  const [difficulty, setDifficulty] = useState('easy');
+  const [currentProblem, setCurrentProblem] = useState(null);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [score, setScore] = useState(0);
+  const [totalQuestions, setTotalQuestions] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const [gameActive, setGameActive] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [hardModeQueue, setHardModeQueue] = useState([]);
+  const [completedRounds, setCompletedRounds] = useState(0);
+  const [roundComplete, setRoundComplete] = useState(false);
+  const [wrongAnswers, setWrongAnswers] = useState([]);
+  const [showSummary, setShowSummary] = useState(false);
+
+  // Difficulty settings
+  const difficultySettings = {
+    easy: { 
+      tables: [2, 3, 4, 5], 
+      multipliers: [1, 2, 3, 4, 5], 
+      timeLimit: null,
+      name: "Easy (2-5 tables)"
+    },
+    medium: { 
+      tables: [2, 3, 4, 5, 6, 7, 8, 9], 
+      multipliers: [1, 2, 3, 4, 5, 6, 7, 8, 9], 
+      timeLimit: 15,
+      name: "Medium (2-9 tables)"
+    },
+    hard: { 
+      tables: [12, 13, 14, 15, 16, 17, 18, 19], 
+      multipliers: [2, 3, 4, 5, 6, 7, 8], 
+      timeLimit: 12,
+      name: "Hard (12-19 tables)"
+    }
+  };
+
+  // Generate hard mode queue - ensures each table×multiplier combination appears once per round
+  const generateHardModeQueue = () => {
+    const { tables, multipliers } = difficultySettings.hard;
+    const combinations = [];
+    
+    // Create all combinations
+    tables.forEach(table => {
+      multipliers.forEach(multiplier => {
+        combinations.push({ table, multiplier, answer: table * multiplier });
+      });
+    });
+    
+    // Shuffle the combinations randomly
+    for (let i = combinations.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [combinations[i], combinations[j]] = [combinations[j], combinations[i]];
+    }
+    
+    return combinations;
+  };
+
+  // Generate random problem
+  const generateProblem = () => {
+    if (difficulty === 'hard') {
+      // For hard mode, use the queue system
+      if (hardModeQueue.length === 0) {
+        // Round is complete, pause for manual progression
+        setRoundComplete(true);
+        setGameActive(false);
+        return null;
+      } else {
+        // Take next problem from queue
+        const nextProblem = hardModeQueue[0];
+        setHardModeQueue(prev => prev.slice(1));
+        return nextProblem;
+      }
+    } else {
+      // For easy and medium modes, use random generation
+      const settings = difficultySettings[difficulty];
+      const table = settings.tables[Math.floor(Math.random() * settings.tables.length)];
+      const multiplier = settings.multipliers[Math.floor(Math.random() * settings.multipliers.length)];
+      
+      return {
+        table,
+        multiplier,
+        answer: table * multiplier
+      };
+    }
+  };
+
+  // Start new game
+  const startGame = () => {
+    setGameActive(true);
+    setScore(0);
+    setTotalQuestions(0);
+    setStreak(0);
+    setFeedback('');
+    setShowAnswer(false);
+    setCompletedRounds(0);
+    setRoundComplete(false);
+    setWrongAnswers([]);
+    setShowSummary(false);
+    
+    // Initialize hard mode queue if needed
+    if (difficulty === 'hard') {
+      const initialQueue = generateHardModeQueue();
+      setHardModeQueue(initialQueue.slice(1));
+      setCurrentProblem(initialQueue[0]);
+    } else {
+      setHardModeQueue([]);
+      const newProblem = generateProblem();
+      setCurrentProblem(newProblem);
+    }
+    
+    if (difficultySettings[difficulty].timeLimit) {
+      setTimeLeft(difficultySettings[difficulty].timeLimit);
+    }
+  };
+
+  // Start next round (for hard mode)
+  const startNextRound = () => {
+    setCompletedRounds(prev => prev + 1);
+    setRoundComplete(false);
+    setGameActive(true);
+    setFeedback('');
+    setShowAnswer(false);
+    
+    const newQueue = generateHardModeQueue();
+    setHardModeQueue(newQueue.slice(1));
+    setCurrentProblem(newQueue[0]);
+    
+    if (difficultySettings[difficulty].timeLimit) {
+      setTimeLeft(difficultySettings[difficulty].timeLimit);
+    }
+  };
+
+  // Timer effect
+  useEffect(() => {
+    if (gameActive && timeLeft > 0) {
+      const timer = setTimeout(() => {
+        setTimeLeft(timeLeft - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (gameActive && timeLeft === 0) {
+      handleTimeout();
+    }
+  }, [timeLeft, gameActive]);
+
+  // Handle timeout
+  const handleTimeout = () => {
+    setFeedback(`⏰ Time's up! The answer was ${currentProblem.answer}`);
+    setShowAnswer(true);
+    setStreak(0);
+    setTotalQuestions(prev => prev + 1);
+    
+    // Track timeout as wrong answer
+    setWrongAnswers(prev => [...prev, {
+      table: currentProblem.table,
+      multiplier: currentProblem.multiplier,
+      correctAnswer: currentProblem.answer,
+      userAnswer: 'Timeout',
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+    
+    setTimeout(() => {
+      nextProblem();
+    }, 2000);
+  };
+
+  // Check answer
+  const checkAnswer = () => {
+    if (!userAnswer.trim()) return;
+    
+    const isCorreect = parseInt(userAnswer) === currentProblem.answer;
+    
+    if (isCorreect) {
+      setScore(prev => prev + 1);
+      setStreak(prev => {
+        const newStreak = prev + 1;
+        if (newStreak > bestStreak) {
+          setBestStreak(newStreak);
+        }
+        return newStreak;
+      });
+      setFeedback('🎉 Correct!');
+    } else {
+      setFeedback(`❌ Wrong! The answer is ${currentProblem.answer}`);
+      setStreak(0);
+      setShowAnswer(true);
+      
+      // Track wrong answer
+      setWrongAnswers(prev => [...prev, {
+        table: currentProblem.table,
+        multiplier: currentProblem.multiplier,
+        correctAnswer: currentProblem.answer,
+        userAnswer: parseInt(userAnswer) || userAnswer,
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    }
+    
+    setTotalQuestions(prev => prev + 1);
+    
+    setTimeout(() => {
+      nextProblem();
+    }, 1500);
+  };
+
+  // Next problem
+  const nextProblem = () => {
+    const newProblem = generateProblem();
+    
+    // Check if round is complete (only for hard mode)
+    if (difficulty === 'hard' && newProblem === null) {
+      return; // Round complete, wait for manual progression
+    }
+    
+    setCurrentProblem(newProblem);
+    setUserAnswer('');
+    setFeedback('');
+    setShowAnswer(false);
+    
+    if (difficultySettings[difficulty].timeLimit) {
+      setTimeLeft(difficultySettings[difficulty].timeLimit);
+    }
+  };
+
+  // Handle Enter key
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && gameActive && !feedback) {
+      checkAnswer();
+    }
+  };
+
+  // Reset game
+  const resetGame = () => {
+    setGameActive(false);
+    setCurrentProblem(null);
+    setUserAnswer('');
+    setTimeLeft(null);
+    setFeedback('');
+    setShowAnswer(false);
+    setHardModeQueue([]);
+    setCompletedRounds(0);
+    setRoundComplete(false);
+    setWrongAnswers([]);
+    setShowSummary(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-2xl mx-auto">
+        <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-indigo-600 mb-2 flex items-center justify-center gap-2">
+              <Target className="w-8 h-8" />
+              Multiplication Trainer
+            </h1>
+            <p className="text-gray-600">Practice multiplication tables 2-19 (except 10)</p>
+          </div>
+
+          {/* Difficulty Selection */}
+          {!gameActive && (
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold mb-4 text-center">Choose Difficulty</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Object.entries(difficultySettings).map(([key, settings]) => (
+                  <button
+                    key={key}
+                    onClick={() => setDifficulty(key)}
+                    className={`p-4 rounded-xl border-2 transition-all ${
+                      difficulty === key
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-200 hover:border-indigo-300'
+                    }`}
+                  >
+                    <div className="font-semibold capitalize">{key}</div>
+                    <div className="text-sm text-gray-600 mt-1">{settings.name}</div>
+                    {settings.timeLimit && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        {settings.timeLimit}s per question
+                      </div>
+                    )}
+                    {key === 'hard' && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        56 questions per round
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Stats */}
+          {(gameActive || totalQuestions > 0) && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <Trophy className="w-5 h-5 text-green-600 mx-auto mb-1" />
+                <div className="text-lg font-bold text-green-700">{score}</div>
+                <div className="text-xs text-green-600">Correct</div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 text-center">
+                <Target className="w-5 h-5 text-blue-600 mx-auto mb-1" />
+                <div className="text-lg font-bold text-blue-700">{totalQuestions}</div>
+                <div className="text-xs text-blue-600">Total</div>
+              </div>
+              <div className="bg-orange-50 rounded-lg p-3 text-center">
+                <Star className="w-5 h-5 text-orange-600 mx-auto mb-1" />
+                <div className="text-lg font-bold text-orange-700">{streak}</div>
+                <div className="text-xs text-orange-600">Streak</div>
+              </div>
+              <div className="bg-purple-50 rounded-lg p-3 text-center">
+                <Trophy className="w-5 h-5 text-purple-600 mx-auto mb-1" />
+                <div className="text-lg font-bold text-purple-700">{bestStreak}</div>
+                <div className="text-xs text-purple-600">Best</div>
+              </div>
+            </div>
+          )}
+
+          {/* Hard Mode Progress */}
+          {(gameActive || roundComplete) && difficulty === 'hard' && (
+            <div className="mb-6">
+              <div className="bg-indigo-50 rounded-lg p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-indigo-700">Round Progress</span>
+                  <span className="text-sm text-indigo-600">
+                    {roundComplete ? `Round ${completedRounds + 1} Complete!` : `Round ${completedRounds + 1}`}
+                  </span>
+                </div>
+                <div className="w-full bg-indigo-200 rounded-full h-2">
+                  <div 
+                    className="bg-indigo-600 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: roundComplete ? '100%' : `${((56 - hardModeQueue.length) / 56) * 100}%` }}
+                  ></div>
+                </div>
+                <div className="text-xs text-indigo-600 mt-1">
+                  {roundComplete ? '56 / 56 questions completed' : `${56 - hardModeQueue.length} / 56 questions in current round`}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Game Area */}
+          {showSummary ? (
+            // Wrong Answers Summary
+            <div className="text-center">
+              <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-2xl p-6 mb-6">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <AlertCircle className="w-6 h-6 text-red-600" />
+                  <h2 className="text-2xl font-bold text-red-600">Wrong Answers Summary</h2>
+                </div>
+                
+                {wrongAnswers.length === 0 ? (
+                  <div className="text-lg text-green-600 font-semibold">
+                    🎉 Perfect! No wrong answers in this session!
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-lg text-gray-600 mb-4">
+                      You got {wrongAnswers.length} question{wrongAnswers.length !== 1 ? 's' : ''} wrong. Review them below:
+                    </div>
+                    
+                    <div className="max-h-96 overflow-y-auto">
+                      <div className="grid gap-3">
+                        {wrongAnswers.map((mistake, index) => (
+                          <div key={index} className="bg-white rounded-lg p-4 border-l-4 border-red-400">
+                            <div className="flex justify-between items-center">
+                              <div className="text-left">
+                                <div className="text-lg font-semibold text-gray-800">
+                                  {mistake.table} × {mistake.multiplier} = ?
+                                </div>
+                                <div className="text-sm text-gray-600">
+                                  <span className="text-red-600">Your answer: {mistake.userAnswer}</span>
+                                  <span className="mx-2">•</span>
+                                  <span className="text-green-600">Correct: {mistake.correctAnswer}</span>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {mistake.timestamp}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={() => setShowSummary(false)}
+                  className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  Back to Game
+                </button>
+                
+                <button
+                  onClick={resetGame}
+                  className="px-6 py-3 bg-gray-500 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors flex items-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  New Game
+                </button>
+              </div>
+            </div>
+          ) : roundComplete ? (
+            // Round Complete Screen
+            <div className="text-center">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-8 mb-6">
+                <div className="text-6xl mb-4">🎉</div>
+                <div className="text-3xl font-bold text-green-600 mb-2">
+                  Round {completedRounds + 1} Complete!
+                </div>
+                <div className="text-lg text-gray-600 mb-4">
+                  You've completed all 56 multiplication problems for this round
+                </div>
+                <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                  <div className="bg-white rounded-lg p-3">
+                    <div className="text-2xl font-bold text-green-600">{score}</div>
+                    <div className="text-sm text-gray-600">Correct Answers</div>
+                  </div>
+                  <div className="bg-white rounded-lg p-3">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {Math.round((score/totalQuestions) * 100)}%
+                    </div>
+                    <div className="text-sm text-gray-600">Accuracy</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-4 justify-center">
+                <button
+                  onClick={startNextRound}
+                  className="px-8 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors text-lg"
+                >
+                  Start Round {completedRounds + 2}
+                </button>
+                
+                {wrongAnswers.length > 0 && (
+                  <button
+                    onClick={() => setShowSummary(true)}
+                    className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center gap-2"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Review Mistakes ({wrongAnswers.length})
+                  </button>
+                )}
+                
+                <button
+                  onClick={resetGame}
+                  className="px-6 py-3 bg-gray-500 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors flex items-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  New Game
+                </button>
+              </div>
+            </div>
+          ) : gameActive && currentProblem ? (
+            <div className="text-center">
+              {/* Timer */}
+              {timeLeft !== null && (
+                <div className="mb-4">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${
+                    timeLeft <= 3 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    <Clock className="w-4 h-4" />
+                    <span className="font-mono font-bold">{timeLeft}s</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Problem */}
+              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-2xl p-8 mb-6">
+                <div className="text-6xl font-bold text-indigo-600 mb-4">
+                  {currentProblem.table} × {currentProblem.multiplier}
+                </div>
+                <div className="text-2xl text-gray-600">=</div>
+              </div>
+
+              {/* Answer Input */}
+              {!feedback && (
+                <div className="mb-6">
+                  <input
+                    type="number"
+                    value={userAnswer}
+                    onChange={(e) => setUserAnswer(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    className="w-32 h-16 text-3xl font-bold text-center border-2 border-indigo-300 rounded-lg focus:border-indigo-500 focus:outline-none"
+                    placeholder="?"
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {/* Feedback */}
+              {feedback && (
+                <div className={`text-2xl font-bold mb-4 ${
+                  feedback.includes('Correct') ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {feedback}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-4 justify-center">
+                {!feedback ? (
+                  <button
+                    onClick={checkAnswer}
+                    disabled={!userAnswer.trim()}
+                    className="px-8 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Check Answer
+                  </button>
+                ) : (
+                  <button
+                    onClick={nextProblem}
+                    className="px-8 py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                  >
+                    Next Problem
+                  </button>
+                )}
+                
+                <button
+                  onClick={resetGame}
+                  className="px-6 py-3 bg-gray-500 text-white rounded-lg font-semibold hover:bg-gray-600 transition-colors flex items-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Reset
+                </button>
+                
+                {wrongAnswers.length > 0 && (
+                  <button
+                    onClick={() => setShowSummary(true)}
+                    className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center gap-2"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Review Mistakes ({wrongAnswers.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center">
+              <button
+                onClick={startGame}
+                className="px-12 py-4 bg-indigo-600 text-white text-xl font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Start Practice
+              </button>
+              
+              {totalQuestions > 0 && (
+                <div className="mt-4 text-gray-600">
+                  Last session: {score}/{totalQuestions} correct 
+                  ({Math.round((score/totalQuestions) * 100)}%)
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default MultiplicationTrainer;
